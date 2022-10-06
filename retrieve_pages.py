@@ -1,3 +1,4 @@
+from unicodedata import category
 import requests
 import time
 import tqdm
@@ -164,7 +165,7 @@ def retrieve_pages(in_tuple):
 
             data_list.append(data)
         
-    return data_list
+    return category, data_list
 
 if __name__ == "__main__":
     
@@ -212,19 +213,33 @@ if __name__ == "__main__":
             cats.append((root_cat, hier, name))
             seen_cats.add(name)
 
-    print("Got {} distinct categories after reading.".format(len(cats)))
+    num_distinct_cats = len(cats)
+    print("Got {} distinct categories after reading.".format(num_distinct_cats))
     
+    processed_categories_file = "./data/processed-{}-subcategories-list.csv".format(root_cat) # this file records the categories that you have processed
+    with open(processed_categories_file, "r") as text:
+        content = text.read()
+        processed_cats = content.split("\n") # each line is a subcategories
+    cats = [cat for cat in cats if cat[2] not in processed_cats] # only remain unprocessed categories
+    num_processed_cats = len(processed_cats) - 1 #(it will count the last empty line so -1 to fix the number)
+    print("Got {}/{} categories have been processed.".format(num_processed_cats, num_distinct_cats))
+    print("{} categories will be processed this time.".format(len(cats)))
+
     pool = Pool(processes=core)
     pbar = tqdm.tqdm(total=len(cats))
     target_collection = get_collection_cursor()
 
-    for result in pool.imap_unordered(retrieve_pages, cats):
+    for category, result in pool.imap_unordered(retrieve_pages, cats):
         # insert the page pair into database
         for x in result:
             if target_collection.count_documents({"English_pageid":x["English_pageid"]}) == 0:
                 target_collection.insert_one(x)
         # finish one subcategory
         pbar.update(1)
+
+        with open(processed_categories_file, "a") as writeFile:
+            writeFile.write("{}\n".format(category))
+
     pbar.close()
 
     elapsed_time = time.time() - start
