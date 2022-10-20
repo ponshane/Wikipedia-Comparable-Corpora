@@ -87,12 +87,21 @@ def retrieve_pages(in_tuple):
         R = requests.get(URL, params=PARAMS)
         continue_flag, tmp = parse_response(R.json())
         rs += tmp
-    
+        time.sleep(1) # do not send request too frequent
+
+    if len(rs) > 500:
+        return category, len(rs)
+
     # store list of comparable page pairs
     data_list = []
 
     # process each page
-    for elem in rs:
+    for i, elem in enumerate(rs):
+
+        # after colltecting 10 pages, the process will sleep for 1 second
+        if i != 0 and i % 10 == 0:
+            time.sleep(1)
+
         English_pageid = elem[0]
         English_page_title = elem[1]
             
@@ -164,7 +173,9 @@ def retrieve_pages(in_tuple):
             }
 
             data_list.append(data)
-        
+
+    # be gentle for server, the process will sleep for 1 second
+    time.sleep(1) 
     return category, data_list
 
 if __name__ == "__main__":
@@ -225,15 +236,22 @@ if __name__ == "__main__":
     print("Got {}/{} categories have been processed.".format(num_processed_cats, num_distinct_cats))
     print("{} categories will be processed this time.".format(len(cats)))
 
+    skip_categories_file = "./data/skip-{}-subcategories-list.csv".format(root_cat) # this file records the categories that you have processed
+
     pool = Pool(processes=core)
     pbar = tqdm.tqdm(total=len(cats))
     target_collection = get_collection_cursor()
 
     for category, result in pool.imap_unordered(retrieve_pages, cats):
+        # if result is int that means the returned category has over 500 pages
+        if type(result) == int:
+            with open(skip_categories_file, "a") as writeFile:
+                writeFile.write("{},{}\n".format(category, result))
         # insert the page pair into database
-        for x in result:
-            if target_collection.count_documents({"English_pageid":x["English_pageid"]}) == 0:
-                target_collection.insert_one(x)
+        else:
+            for x in result:
+                if target_collection.count_documents({"English_pageid":x["English_pageid"]}) == 0:
+                    target_collection.insert_one(x)
         # finish one subcategory
         pbar.update(1)
 
